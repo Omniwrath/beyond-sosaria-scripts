@@ -1,0 +1,4 @@
+# Each script makes a data folder named after itself, beside it -- never commit one
+*/
+__pycache__/
+*.pyc
