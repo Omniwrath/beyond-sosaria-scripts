@@ -42,7 +42,7 @@
 #   * Set working chest -- target a chest at home; with a rune named Home, everything panned goes
 #     there instead of the bank. Use the bank -- back to the bank.
 #   * Rescan -- read your Account Runebook again after you add or move a rune.
-#   * How full the pack gets before it unloads: pack_pct in Setup.txt (60 = 60% of your weight).
+#   * How full the pack gets before it unloads: pack_pct in Setup.txt (80 = 80% of your weight, the default).
 #
 # HOW IT WORKS
 #   * Each rune: it looks for water near the rune, then walks out along the shore -- up to 150 tiles
@@ -56,7 +56,8 @@
 #   * Unloading: at a banker (it remembers which towns have one), your Sosarian Ethereal, or your
 #     working chest -- nuggets, bricks, rough stone, gems, and anything else that came into the pack
 #     since it started, except pans, kits, ingots, orders and gold. Bank checks go to the bank
-#     together after the turn-ins.
+#     together after the turn-ins. Panning goods and orders already in your pack when you press
+#     Start are handled like its own -- unloaded, filled, turned in -- but an Epic item is left alone.
 #   * Gold Panning Orders: nuggets stay in the pack. When it fills, they go into the carried orders
 #     of their size where it stands; a pack still full goes to Harry, who trades nuggets up, takes
 #     every order it can FINISH (never a partial) and gives the next. The orders paying the most
@@ -172,7 +173,7 @@ SETTINGS_FILE = "Setup.txt"
 SETTINGS = {}
 DEFAULTS = {
     "orders": "1", "avoid_invasions": "1", "mark_runes": "1",
-    "pack_pct": "60", "po_path": "",
+    "pack_pct": "80", "po_path": "",     # (owner, 2026-10-16: panning fills a find at a time, no bursts)
     "started": "0",                 # Start pressed once: every later run skips the start screen
     "chest": "", "home_path": "",   # THE WORKING CHEST: its serial, and where the Home rune was found
     "bank_goods": "1",              # ... the bank's nuggets at its last look, "small:12,large:3" ("1": not looked yet)
@@ -2587,6 +2588,47 @@ NEVER_MOVED = ("storage", "book", "key")   # a storage key or an order book -- t
                                          # banked or trashed, however many of one we hold
 
 
+# WHAT THE PLAYER BROUGHT (owner, 2026-10-16 09:3x: "scan for panning items already in the pack. If they maybe have 30
+# orders already when they start it, then we can just handle that situation. Same with any of the regular items
+# collectable from panning. Not epics."): the panning goods in the pack at Start are the panner's to handle -- nuggets,
+# bricks, rough stone, gems and checks unloaded and used for orders, the orders carried, filled and turned in, never
+# trashed (prune_deeds()) -- but an Epic one is never moved.
+_epic_seen = {}
+
+
+def is_epic(it):
+    """True when the item's properties call it Epic -- read once a serial."""
+    if it.Serial not in _epic_seen:
+        try:
+            Items.WaitForProps(it.Serial, 1000)
+            props = " | ".join(str(p) for p in (Items.GetPropStringList(it.Serial) or [])).lower()
+        except Exception:
+            props = ""
+        _epic_seen[it.Serial] = re.search(r"\bepic\b", props) is not None
+    return _epic_seen[it.Serial]
+
+
+def brought_goods_said():
+    """One line at Start: the panning goods and orders already in the pack, handled like the panner's own."""
+    goods, orders, epics = 0, 0, 0
+    for it in pack_items():
+        low = name_of(it).lower()
+        if any(w in low for w in NEVER_MOVED):
+            continue
+        if "panning order" in low:
+            orders += 1
+        elif any(w in low for w in LOOT_WORDS):
+            if is_epic(it):
+                epics += 1
+            else:
+                goods += 1
+    if goods or orders:
+        log("In your pack at Start: %s -- handled like the panner's own%s." % (
+            ", ".join(x for x in ("%d stack(s) of panning goods" % goods if goods else "",
+                                  "%d Gold Panning Order(s)" % orders if orders else "") if x),
+            "; %d Epic item(s) left alone" % epics if epics else ""))
+
+
 def loot_in_pack():
     out = []
     for it in pack_items():
@@ -2594,6 +2636,8 @@ def loot_in_pack():
         if any(w in low for w in NEVER_MOVED):
             continue
         if any(w in low for w in LOOT_WORDS):
+            if it.Serial in START_PACK and is_epic(it):
+                continue                # WHAT THE PLAYER BROUGHT: an Epic one stays
             out.append(it)
             continue
         if it.Serial in START_PACK or is_pan(it) or any(w in low for w in KEEP_WORDS):
@@ -3549,6 +3593,8 @@ def prune_deeds(chest=None):
     for d in reversed(ranked[DEEDS_KEPT:]):
         if d[1] > 0:
             continue                    # an order with nuggets in it is never thrown away (FILL IN THE FIELD)
+        if d[0].Serial in START_PACK:
+            continue                    # WHAT THE PLAYER BROUGHT: their own orders are worked, never thrown away
         Items.Move(d[0].Serial, bag.Serial, -1)
         Misc.Pause(700)
         trashed += 1
@@ -4186,6 +4232,7 @@ def run():
         walk_to_harry()                 # THE WALK TO HARRY
     START_PACK.clear()
     START_PACK.update(it.Serial for it in pack_items())
+    brought_goods_said()                # WHAT THE PLAYER BROUGHT
     log("Panning %d town(s)%s." % (len(route()), "; Gold Panning Orders at Harry" if orders_on() else ""))
     if not keep_pans() and not (supplies_low() and supply_run()):
         log("No Gold Pan, and none could be made or bought -- stopping.", HUE_BAD)

@@ -86,7 +86,7 @@ Open them from the start screen or the panning window's **Options** button. Ever
 | Rescan | Reads your Account Runebook again -- after you add, move or rename a rune. |
 
 One setting is in the file only: how full the pack gets before it unloads. It is `pack_pct` in `Setup.txt`, in your
-character's folder inside the script's data folder (`60` = 60% of your carrying weight, between 20 and 95).
+character's folder inside the script's data folder (`80` = 80% of your carrying weight, the default; between 20 and 95).
 
 ### Its data folder
 
